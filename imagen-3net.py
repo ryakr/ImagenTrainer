@@ -1,3 +1,5 @@
+import wandb
+
 import math
 import numbers
 import os
@@ -16,10 +18,16 @@ from imagen_pytorch import Unet, Imagen, ImagenTrainer, ElucidatedImagen
 from gan_utils import get_images, get_vocab
 from data_generator import ImageLabelDataset
 
+wandb.init(project="imagen-Cosmic")
+wandb.config.scales = [64,256,1024]
+wandb.config.batch_size = 348
+wandb.config.max_batch_size = 64
+wandb.config.unet_to_train = 2
+wandb.config.shuffle = True
+wandb.config.drop_tags=0.75
+wandb.config.image_size = wandb.config.scales[wandb.config.unet_to_train-1]
 
-scales=[64,256,1024]
-unetnum = 1
-random_drop_tags=0.75
+
 
 def txt_xforms(txt):
     # print(f"txt: {txt}")
@@ -27,12 +35,12 @@ def txt_xforms(txt):
     if True:
         np.random.shuffle(txt)
 
-    r = int(len(txt) * random_drop_tags)
+    r = int(len(txt) * wandb.config.drop_tags)
 
     if r > 0:
         rand_range = random.randrange(r)
 
-    if random_drop_tags > 0.0 and r > 0:
+    if wandb.config.drop_tags > 0.0 and r > 0:
         txt.pop(rand_range)    
     
     txt = ", ".join(txt)
@@ -264,8 +272,7 @@ def get_imagen(args, unet_dims=None, unet2_dims=None):
 
 def train(args):
 
-    scale=scales[(unetnum-1)]
-    print('Scale: {} | Unet: {}'.format(scale, unetnum))
+    print('Scale: {} | Unet: {}'.format(wandb.config.image_size, wandb.config.unet_to_train))
     imagen = get_imagen(args)
 
     trainer = ImagenTrainer(imagen, fp16=True)
@@ -292,13 +299,13 @@ def train(args):
 
     tforms = transforms.Compose([
             PadImage(),
-            transforms.Resize((scale, scale)),
+            transforms.Resize((wandb.config.image_size, wandb.config.image_size)),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor()])
 
     data = ImageLabelDataset(imgs, txts, None,
                              poses=poses,
-                             dim=(scale,scale),
+                             dim=(wandb.config.image_size,wandb.config.image_size),
                              transform=tforms,
                              tag_transform=txt_xforms,
                              channels_first=True,
@@ -306,12 +313,12 @@ def train(args):
                              no_preload=False)
 
     dl = torch.utils.data.DataLoader(data,
-                                     batch_size=args.batch_size,
+                                     batch_size=wandb.config.batch_size,
                                      shuffle=True,
                                      num_workers=14,
                                      pin_memory=True)
 
-    disp_size = min(args.batch_size, 4)
+    disp_size = min(wandb.config.batch_size, 4)
     rate = deque([1], maxlen=5)
 
     os.makedirs(args.samples_out, exist_ok=True)
@@ -345,11 +352,11 @@ def train(args):
                     images,
                     cond_images=poses,
                     texts = texts,
-                    unet_number = unetnum,
-                    max_batch_size = args.micro_batch_size
+                    unet_number = wandb.config.unet_to_train,
+                    max_batch_size = wandb.config.max_batch_size
                 )
 
-                trainer.update(unet_number=unetnum)
+                trainer.update(unet_number=wandb.config.unet_to_train)
 
                 losses = loss
 
@@ -357,10 +364,11 @@ def train(args):
             rate.append(round(1.0 / (t2 - t1), 2))
 
             if step % 1 == 0:
+                wandb.log({"loss": losses, "epoch": epoch})
                 print("epoch {}/{} step {}/{} loss: {} - {}it/s - incriment {} Step Full {}".format(
                       epoch,
                       args.epochs,
-                      step * args.batch_size,
+                      step * wandb.config.batch_size,
                       len(imgs),
                       losses,
                       round(np.mean(rate), 2),
@@ -375,10 +383,10 @@ def train(args):
                                                cond_images=sample_poses,
                                                cond_scale=3.,
                                                return_all_unet_outputs=True,
-                                               stop_at_unet_number=unetnum)
+                                               stop_at_unet_number=wandb.config.unet_to_train)
 
-                sample_images0 = transforms.Resize(scale)(sample_images[0])
-                sample_images1 = transforms.Resize(scale)(sample_images[-1])
+                sample_images0 = transforms.Resize(wandb.config.image_size)(sample_images[0])
+                sample_images1 = transforms.Resize(wandb.config.image_size)(sample_images[-1])
                 sample_images = torch.cat([sample_images0, sample_images1])
 
                 if poses is not None:
@@ -391,6 +399,8 @@ def train(args):
                 if args.imagen is not None:
                     trainer.save(args.imagen, unet1_dims=args.unet_dims,
                                  unet2_dims=args.unet2_dims)
+                    wandb.save(args.imagen)
+                wandb.log({ "epoch": epoch, "outputs": VTF.to_pil_image(grid) })
 
 
 if __name__ == "__main__":
