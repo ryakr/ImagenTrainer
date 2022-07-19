@@ -31,7 +31,7 @@ The subdirectories doesn't really matter, only the filenames matter.
 ### To train:
 
 ```bash
-python3 imagen.py --train --source /path/to/dataset --imagen yourmodel.pth
+python3 imagen-3net.py --train --source /path/to/dataset --imagen yourmodel.pth
 ```
 
 Changable settings are in the script, such as unet number and the image size to resize to.
