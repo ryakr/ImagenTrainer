@@ -17,8 +17,11 @@ from gan_utils import get_images, get_vocab
 from data_generator import ImageLabelDataset
 
 
+scales=[64,256,1024]
+unetnum = 1
+random_drop_tags=0.75
+
 def txt_xforms(txt):
-    random_drop_tags=0.75
     # print(f"txt: {txt}")
     txt = txt.split(", ")
     if True:
@@ -260,8 +263,7 @@ def get_imagen(args, unet_dims=None, unet2_dims=None):
 
 
 def train(args):
-    scales=[64,256,1024]
-    unetnum = 2
+
     scale=scales[(unetnum-1)]
     print('Scale: {} | Unet: {}'.format(scale, unetnum))
     imagen = get_imagen(args)
