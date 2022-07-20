@@ -32,7 +32,7 @@ wandb.config.image_size = wandb.config.scales[wandb.config.unet_to_train-1]
 def txt_xforms(txt):
     # print(f"txt: {txt}")
     txt = txt.split(", ")
-    if True:
+    if wandb.config.shuffle:
         np.random.shuffle(txt)
 
     r = int(len(txt) * wandb.config.drop_tags)
