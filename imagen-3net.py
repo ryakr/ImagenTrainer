@@ -399,8 +399,10 @@ def train(args):
                 if args.imagen is not None:
                     trainer.save(args.imagen, unet1_dims=args.unet_dims,
                                  unet2_dims=args.unet2_dims)
-                    wandb.save(args.imagen)
-                wandb.log({ "epoch": epoch, "outputs": VTF.to_pil_image(grid) })
+                    if epoch % 500 == 0:
+                        wandb.save(args.imagen)
+                images = wandb.Image(VTF.to_pil_image(grid), caption="Top: Unet1, Bottom: Unet{}".format(wandb.config.unet_to_train))
+                wandb.log({ "epoch": epoch, "outputs":  images})
 
 
 if __name__ == "__main__":
