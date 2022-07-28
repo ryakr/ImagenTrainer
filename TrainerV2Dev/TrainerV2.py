@@ -1,4 +1,5 @@
 import wandb
+from collections import deque
 
 from imagen_pytorch import Unet, Imagen, ImagenTrainer, ElucidatedImagen
 from imagen_pytorch.data import get_images_dataloader
@@ -6,6 +7,7 @@ from data_generator import ImageLabelDataset
 from gan_utils import get_images, get_vocab
 from torchvision import transforms
 from torchvision.transforms import functional as VTF
+from torchvision.utils import make_grid, save_image
 import math
 import numbers
 import os
@@ -156,23 +158,40 @@ trainer.add_train_dataloader(dl)
 print('Network')
 trainer.load(network, noop_if_not_exist = True)
 
+sample_texts=['canine, underwear',
+              'felid, lion, animal genitalia ',
+              'bear',
+              'otter']
+
+
+rate = deque([1], maxlen=5)
 # working training loop
 print('Scale: {} | Unet: {}'.format(wandb.config.image_size, wandb.config.unet_to_train))
 for i in range(200000):
+    t1 = time.monotonic()
     loss = trainer.train_step(unet_number = wandb.config.unet_to_train, max_batch_size = wandb.config.max_batch_size)
+    t2 = time.monotonic()
+    rate.append(round(1.0 / (t2 - t1), 2))
     wandb.log({"loss": loss, "step": i})
-    print(f'loss: {loss}')
+    print(f'loss: {loss} | Step: {i} | Rate: {round(np.mean(rate), 2)}')
 
     if not (i % 50) and False:
         valid_loss = trainer.valid_step(unet_number = wandb.config.unet_to_train, max_batch_size = wandb.config.max_batch_size)
         wandb.log({"Validated loss": valid_loss, "step": i})
         print(f'valid loss: {valid_loss}')
 
-    if not (i % 100) and trainer.is_main: # is_main makes sure this can run in distributed
-        images = trainer.sample(batch_size = 4, return_pil_images = True) # returns List[Image]
-        images[0].save(f'./sample-{i // 100}.png')
+    if not (i % 250) and trainer.is_main: # is_main makes sure this can run in distributed
+        rng_state = torch.get_rng_state()
+        torch.manual_seed(1)
+        images = trainer.sample(batch_size = 4, return_pil_images = False, texts=sample_texts, stop_at_unet_number=wandb.config.unet_to_train, return_all_unet_outputs=True) # returns List[Image]
+        torch.set_rng_state(rng_state)
+        sample_images0 = transforms.Resize(wandb.config.image_size)(images[0])
+        sample_images1 = transforms.Resize(wandb.config.image_size)(images[-1])
+        sample_images = torch.cat([sample_images0, sample_images1])
+        grid = make_grid(sample_images, nrow=4, normalize=False, range=(-1, 1))
+        VTF.to_pil_image(grid).save(f'./sample-{i // 100}.png')
         print('SAVING NETWORK')
         trainer.save(network)
         print('Network Saved')
-        images = wandb.Image(images[0], caption="Top: Unet1, Bottom: Unet{}".format(wandb.config.unet_to_train))
-        wandb.log({ "epoch": epoch, "outputs":  images})
+        images = wandb.Image(VTF.to_pil_image(grid), caption="Top: Unet1, Bottom: Unet{}".format(wandb.config.unet_to_train))
+        wandb.log({ "step": i, "outputs": images})
