@@ -19,15 +19,17 @@ wandb.init(project="imagen-Goo")
 wandb.config.scales = [64,256,1024]
 wandb.config.batch_size = 64
 wandb.config.max_batch_size = 16
-wandb.config.unet_to_train = 2
+wandb.config.unet_to_train = 1
+wandb.config.unet_to_stop = 2
 wandb.config.shuffle = True
 wandb.config.drop_tags=0.75
 wandb.config.image_size = wandb.config.scales[wandb.config.unet_to_train-1]
+text_encoder='/workspace/checkpoint-401216'
 
 
 # unets for unconditional imagen
 source = '/workspace/GOO'
-network = 'GOO_P1.pth'
+network = 'GOO_P1_New.pth'
 imgs = get_images(source, verify=False)
 txts = get_images(source, exts=".txt")
 
@@ -114,9 +116,10 @@ unet3 = Unet(
 
 imagen = ElucidatedImagen(
     unets = (unet1, unet2, unet3),
+    text_encoder_name=text_encoder,
     image_sizes = (64, 256, 1024),
     cond_drop_prob = 0.1,
-    #random_crop_sizes = (None, 128, 256),
+    random_crop_sizes = (None, 128, 256),
     num_sample_steps = (64, 32, 32), # number of sample steps - 64 for base unet, 32 for upsampler (just an example, have no clue what the optimal values are)
     sigma_min = 0.002,           # min noise level
     sigma_max = (80, 160, 160),       # max noise level, @crowsonkb recommends double the max noise level for upsampler
@@ -131,7 +134,7 @@ imagen = ElucidatedImagen(
     auto_normalize_img = True,
 )
 print('Trainer')
-trainer = ImagenTrainer(imagen, fp16=True, dl_tuple_output_keywords_names=('images', 'texts'), split_valid_from_train=True).cuda()
+trainer = ImagenTrainer(imagen, fp16=False, precision='bf16', dl_tuple_output_keywords_names=('images', 'texts'), split_valid_from_train=True).cuda()
 
 tforms = transforms.Compose([
         PadImage(),
@@ -183,10 +186,10 @@ for i in range(200000):
     if not (i % 250) and trainer.is_main: # is_main makes sure this can run in distributed
         rng_state = torch.get_rng_state()
         torch.manual_seed(1)
-        images = trainer.sample(batch_size = 4, return_pil_images = False, texts=sample_texts, stop_at_unet_number=wandb.config.unet_to_train, return_all_unet_outputs=True) # returns List[Image]
+        images = trainer.sample(batch_size = 4, return_pil_images = False, texts=sample_texts, stop_at_unet_number=wandb.config.unet_to_stop, return_all_unet_outputs=True) # returns List[Image]
         torch.set_rng_state(rng_state)
-        sample_images0 = transforms.Resize(wandb.config.image_size)(images[0])
-        sample_images1 = transforms.Resize(wandb.config.image_size)(images[-1])
+        sample_images0 = transforms.Resize(wandb.config.scales[wandb.config.unet_to_stop-1])(images[0])
+        sample_images1 = transforms.Resize(wandb.config.scales[wandb.config.unet_to_stop-1])(images[-1])
         sample_images = torch.cat([sample_images0, sample_images1])
         grid = make_grid(sample_images, nrow=4, normalize=False, range=(-1, 1))
         VTF.to_pil_image(grid).save(f'./sample-{i // 100}.png')
